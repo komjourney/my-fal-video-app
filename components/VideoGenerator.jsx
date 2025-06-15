@@ -1,4 +1,6 @@
 // components/VideoGenerator.jsx (版本 v1.6 - 终极决战修复版)
+// flux-1-schnell 测试正常并返回图片
+// kling-2.1-master 正常返回视频
 
 "use client";
 
@@ -119,7 +121,7 @@ export function VideoGenerator() {
 
   return (
     <div className="w-full max-w-2xl mx-auto p-6 sm:p-8 bg-white shadow-xl rounded-lg space-y-6">
-       <h1 className="text-3xl font-bold text-center text-gray-900">阿叁的AI媒体生成器 (v1.6)</h1>
+       <h1 className="text-3xl font-bold text-center text-gray-900">AI 媒体生成器 (v1.6)</h1>
        <div className="space-y-2">
         <label htmlFor="model" className="block text-sm font-medium text-gray-700">1. 选择模型</label>
         <select id="model" className="w-full p-2 border border-gray-300 rounded-md" value={selectedModel} onChange={(e) => handleModelChange(e.target.value)} disabled={isLoading}>
