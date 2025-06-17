@@ -16,7 +16,7 @@ fal.config({
 const MODELS_CONFIG = [
   {
     id: "fal-ai/bytedance/seedream/v3/text-to-image",
-    name: "Seedream v3 (文生图)",
+    name: "Seedream v3 (文生图，支持中文)",
     type: 'image',
     isActive: true,
     defaults: {
