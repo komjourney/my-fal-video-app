@@ -76,7 +76,7 @@ const MODELS_CONFIG = [
     id: "fal-ai/flux-1/schnell",
     name: "Flux-1 (文生图 - 备用)",
     type: 'image',
-    isActive: false,
+    isActive: true,
     defaults: {
       image_size: 'landscape_4_3', num_inference_steps: 4, num_images: 1, enable_safety_checker: true,
       imageSizeOptions: [ { value: 'square_hd', label: '高清正方形 (1024x1024)'}, { value: 'square', label: '普通正方形 (512x512)'}, { value: 'portrait_4_3', label: '竖屏 4:3'}, { value: 'portrait_16_9', label: '竖屏 16:9'}, { value: 'landscape_4_3', label: '横屏 4:3'}, { value: 'landscape_16_9', label: '横屏 16:9'}, ]
@@ -208,7 +208,7 @@ export function VideoGenerator() {
 
     return (
         <div className="w-full max-w-2xl mx-auto p-6 sm:p-8 bg-white shadow-xl rounded-lg space-y-6">
-            <h1 className="text-3xl font-bold text-center text-gray-900">AI 媒体生成器 (v3.0)</h1>
+            <h1 className="text-3xl font-bold text-center text-gray-900">阿叁的AI (v3.0)</h1>
             {selectedModelConfig ? ( <>
                 <div className="space-y-2">
                     <label htmlFor="model" className="block text-sm font-medium text-gray-700">1. 选择模型</label>
