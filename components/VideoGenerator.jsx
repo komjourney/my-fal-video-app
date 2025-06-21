@@ -1,4 +1,4 @@
-// components/VideoGenerator.jsx (版本 3.0 - 生产环境候选版)
+// components/VideoGenerator.jsx (版本 v3.1 - Hailuo V2 适配版)
 
 "use client";
 
@@ -14,18 +14,19 @@ fal.config({
 // ===================  AI 模型总开关 (中央配置文件)  ===================
 // =======================================================================
 const MODELS_CONFIG = [
+  // [更新] Hailuo-02 Image-to-Video, v2 版本
   {
     id: "fal-ai/minimax/hailuo-02/pro/image-to-video",
     name: "Hailuo-02 (海螺02 图生视频 支持中文)",
     type: 'video',
-    isLongRunning: true, // 标记为超长任务，用于UI提示
+    isLongRunning: true,
     isActive: true,
     defaults: {
-      duration: '6', // API 要求是字符串 '6' 或 '10'
+      // 根据 v2 文档，duration 参数已被移除
       prompt_optimizer: true,
-      durationOptions: [ { value: '6', label: '6秒' }, { value: '10', label: '10秒 (可能降为6秒)' } ],
     }
   },
+  // [更新] Hailuo-02 Text-to-Video, v2 版本
   {
     id: "fal-ai/minimax/hailuo-02/pro/text-to-video",
     name: "Hailuo-02 (海螺02 文生视频 支持中文)",
@@ -33,9 +34,8 @@ const MODELS_CONFIG = [
     isLongRunning: true,
     isActive: true,
     defaults: {
-        duration: '6',
-        prompt_optimizer: true,
-        durationOptions: [ { value: '6', label: '6秒' }, { value: '10', label: '10秒 (可能降为6秒)' } ],
+      // 根据 v2 文档，duration 参数已被移除
+      prompt_optimizer: true,
     }
   },
   {
@@ -54,7 +54,7 @@ const MODELS_CONFIG = [
     type: 'video',
     isActive: true,
     defaults: {
-      duration: '8s', // API 要求是带s的字符串
+      duration: '8s',
       aspectRatio: '16:9',
       durationOptions: [{ value: '8s', label: '8秒 (8s)' }],
       aspectRatioOptions: [ { value: '16:9', label: '16:9 (横屏)' }, { value: '9:16', label: '9:16 (竖屏)' }, ],
@@ -66,7 +66,7 @@ const MODELS_CONFIG = [
     type: 'video',
     isActive: true,
     defaults: {
-      duration: '5', // API 要求是数字
+      duration: '5',
       aspectRatio: '16:9', negativePrompt: 'blur, distort, and low quality', cfgScale: '0.5',
       durationOptions: [ { value: '5', label: '5秒' }, { value: '10', label: '10秒' }, ],
       aspectRatioOptions: [ { value: '16:9', label: '16:9 (横屏)' }, { value: '9:16', label: '9:16 (竖屏)' }, { value: '1:1', label: '1:1 (方屏)' }, ],
@@ -76,7 +76,7 @@ const MODELS_CONFIG = [
     id: "fal-ai/flux-1/schnell",
     name: "Flux-1 (文生图 - 备用)",
     type: 'image',
-    isActive: true,
+    isActive: false,
     defaults: {
       image_size: 'landscape_4_3', num_inference_steps: 4, num_images: 1, enable_safety_checker: true,
       imageSizeOptions: [ { value: 'square_hd', label: '高清正方形 (1024x1024)'}, { value: 'square', label: '普通正方形 (512x512)'}, { value: 'portrait_4_3', label: '竖屏 4:3'}, { value: 'portrait_16_9', label: '竖屏 16:9'}, { value: 'landscape_4_3', label: '横屏 4:3'}, { value: 'landscape_16_9', label: '横屏 16:9'}, ]
@@ -146,21 +146,24 @@ export function VideoGenerator() {
 
         try {
             let inputPayload = { prompt };
-            let finalDuration = duration;
+            
             // 为 Kling 模型特殊处理 duration 类型
-            if (isKling) { finalDuration = parseInt(duration, 10); }
+            if (isKling) {
+                inputPayload.duration = parseInt(duration, 10);
+            } else if (isVeo3) {
+                 inputPayload.duration = duration;
+            }
+            // 注意：Hailuo 模型不再有 duration 参数，所以我们不添加它
 
-            // 动态构建参数包
             if (isSeedream) { Object.assign(inputPayload, { aspect_ratio: aspectRatio, guidance_scale: parseFloat(guidanceScale), num_images: parseInt(numImages, 10) }); } 
-            else if (isKling) { Object.assign(inputPayload, { image_url: imageFile, duration: finalDuration, aspect_ratio: aspectRatio, negative_prompt: negativePrompt, cfg_scale: parseFloat(cfgScale) }); } 
+            else if (isKling) { Object.assign(inputPayload, { image_url: imageFile, aspect_ratio: aspectRatio, negative_prompt: negativePrompt, cfg_scale: parseFloat(cfgScale) }); } 
             else if (isFlux) { Object.assign(inputPayload, { image_size: imageSize, num_inference_steps: parseInt(numInferenceSteps, 10), num_images: parseInt(numImages, 10), enable_safety_checker: enableSafetyChecker }); }
-            else if (isVeo3) { Object.assign(inputPayload, { aspect_ratio: aspectRatio, duration: finalDuration }); }
-            else if (isHailuoI2V) { Object.assign(inputPayload, { image_url: imageFile, duration: finalDuration, prompt_optimizer: promptOptimizer }); }
-            else if (isHailuoT2V) { Object.assign(inputPayload, { duration: finalDuration, prompt_optimizer: promptOptimizer }); }
+            else if (isVeo3) { Object.assign(inputPayload, { aspect_ratio: aspectRatio }); }
+            else if (isHailuoI2V) { Object.assign(inputPayload, { image_url: imageFile, prompt_optimizer: promptOptimizer }); }
+            else if (isHailuoT2V) { Object.assign(inputPayload, { prompt_optimizer: promptOptimizer }); }
             
             console.log(`开始请求 fal.ai, 模型: ${selectedModelId}, 参数:`, inputPayload);
             
-            // 回归到最简单的 await，让前端的 subscribe 自己处理轮询
             const result = await fal.subscribe(selectedModelId, {
                 input: inputPayload,
                 pollInterval: 5000,
@@ -196,7 +199,6 @@ export function VideoGenerator() {
         }
     };
 
-    // ... 辅助变量和 JSX 代码与 v2.4 完全相同 ...
     const isKling = selectedModelConfig?.id.includes('kling');
     const isSeedream = selectedModelConfig?.id.includes('seedream');
     const isFlux = selectedModelConfig?.id.includes('flux');
@@ -208,7 +210,7 @@ export function VideoGenerator() {
 
     return (
         <div className="w-full max-w-2xl mx-auto p-6 sm:p-8 bg-white shadow-xl rounded-lg space-y-6">
-            <h1 className="text-3xl font-bold text-center text-gray-900">阿叁的AI (v3.0)</h1>
+            <h1 className="text-3xl font-bold text-center text-gray-900">阿叁的AI (v3.1)</h1>
             {selectedModelConfig ? ( <>
                 <div className="space-y-2">
                     <label htmlFor="model" className="block text-sm font-medium text-gray-700">1. 选择模型</label>
@@ -230,7 +232,6 @@ export function VideoGenerator() {
             </> ) : (
                 <div className="text-center text-red-500">错误：没有检测到任何激活的模型。</div>
             )}
-
             <div className="mt-6 pt-4 border-t border-gray-200 min-h-[150px]">
                 {error && <div className="text-red-500 text-center mb-2 p-2 bg-red-50 rounded-md">{error}</div>}
                 {isLoading && ( <div className="text-center text-gray-600"> <p className="mb-2 font-semibold animate-pulse">{loadingMessage}</p> <div className="mt-2 text-xs text-left bg-gray-100 p-2 rounded max-h-48 overflow-y-auto font-mono break-words"> {logs.map((log, index) => <p key={index} className="whitespace-pre-wrap">{log}</p>)} </div> </div> )}
