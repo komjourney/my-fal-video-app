@@ -1,4 +1,4 @@
-// components/VideoGenerator.jsx (版本 v3.2 - 参数UI修复版)
+// components/VideoGenerator.jsx (版本 v3.2 - 最终修复版)
 
 "use client";
 
@@ -14,7 +14,6 @@ fal.config({
 // ===================  AI 模型总开关 (中央配置文件)  ===================
 // =======================================================================
 const MODELS_CONFIG = [
-  // ... 其他模型配置与之前版本完全相同 ...
   { id: "fal-ai/bytedance/seedance/v1/pro/image-to-video", name: "Seedance v1 (图生视频)", type: 'video', isLongRunning: true, isActive: true, defaults: { motion_bucket_id: 127, cond_aug: 0.02, negative_prompt: 'blurry, low quality, distortion, low resolution', } },
   { id: "fal-ai/minimax/hailuo-02/pro/image-to-video", name: "Hailuo-02 (海螺02 图生视频 支持中文)", type: 'video', isLongRunning: true, isActive: true, defaults: { duration: '6', prompt_optimizer: true, durationOptions: [ { value: '6', label: '6秒' }, { value: '10', label: '10秒 (可能降为6秒)' } ], } },
   { id: "fal-ai/minimax/hailuo-02/pro/text-to-video", name: "Hailuo-02 (海螺02 文生视频 支持中文)", type: 'video', isLongRunning: true, isActive: true, defaults: { duration: '6', prompt_optimizer: true, durationOptions: [ { value: '6', label: '6秒' }, { value: '10', label: '10秒 (可能降为6秒)' } ], } },
@@ -29,7 +28,7 @@ const activeModels = MODELS_CONFIG.filter(model => model.isActive);
 const initialModel = activeModels.length > 0 ? activeModels[0] : null;
 
 export function VideoGenerator() {
-    // 状态定义和函数与 v3.2 相同
+    // 状态定义
     const [selectedModelId, setSelectedModelId] = useState(initialModel?.id || '');
     const selectedModelConfig = MODELS_CONFIG.find(m => m.id === selectedModelId);
     const [prompt, setPrompt] = useState('');
@@ -53,7 +52,7 @@ export function VideoGenerator() {
     const [isMultiImageMode, setIsMultiImageMode] = useState(false);
 
     useEffect(() => { return () => { imagePreviewUrls.forEach(url => URL.revokeObjectURL(url)); }; }, [imagePreviewUrls]);
-
+    
     const resetAllFields = (newModelConfig) => {
         setPrompt(''); setMediaResults([]); setError(null); setLogs([]); setImageFiles([]); setImagePreviewUrls([]);
         setIsMultiImageMode(false);
@@ -73,7 +72,7 @@ export function VideoGenerator() {
         setSelectedModelId(newModelId);
         resetAllFields(MODELS_CONFIG.find(m => m.id === newModelId));
     };
-    
+
     const handleFileChange = (e) => {
         imagePreviewUrls.forEach(url => URL.revokeObjectURL(url));
         let files = Array.from(e.target.files);
@@ -88,16 +87,83 @@ export function VideoGenerator() {
         setImageFiles([]);
         setImagePreviewUrls([]);
         setError(null);
-    }
+    };
 
+    // [核心修复] 恢复 handleGenerate 函数的完整逻辑
     const handleGenerate = async () => {
-        // ... handleGenerate函数与v3.2完全相同 ...
+        if (isLoading || (isImageToVideo && imageFiles.length === 0)) {
+            return;
+        }
+        setIsLoading(true); setError(null); setMediaResults([]); setLogs([]);
+        
+        let initialMessage = "任务处理中，请稍候...";
+        if (selectedModelConfig?.isLongRunning) { initialMessage = "任务已提交，正在生成... 这可能需要较长时间，请保持此页面开启。"; }
+        setLoadingMessage(initialMessage);
+
+        try {
+            let inputPayload = { prompt, negative_prompt: negativePrompt };
+            
+            if (isKling) { 
+                Object.assign(inputPayload, { duration: parseInt(duration, 10), aspect_ratio: aspectRatio, cfg_scale: parseFloat(cfgScale) });
+                if (isMultiImageMode) {
+                    inputPayload.input_image_urls = imageFiles;
+                } else {
+                    inputPayload.image_url = imageFiles[0];
+                }
+            } else if (isSeedance) { 
+                Object.assign(inputPayload, { image_url: imageFiles[0], motion_bucket_id: parseInt(motionBucketId), cond_aug: parseFloat(condAug) }); 
+            } else if (isSeedream) { 
+                Object.assign(inputPayload, { aspect_ratio: aspectRatio, guidance_scale: parseFloat(guidanceScale), num_images: parseInt(numImages, 10) }); 
+            } else if (isFlux) { 
+                Object.assign(inputPayload, { image_size: imageSize, num_inference_steps: parseInt(numInferenceSteps, 10), num_images: parseInt(numImages, 10), enable_safety_checker: enableSafetyChecker }); 
+            } else if (isVeo3) { 
+                Object.assign(inputPayload, { aspect_ratio: aspectRatio, duration: duration }); 
+            } else if (isHailuo) { 
+                Object.assign(inputPayload, { duration: duration, prompt_optimizer: promptOptimizer }); 
+                if(isHailuoI2V) inputPayload.image_url = imageFiles[0]; 
+            }
+            
+            console.log(`开始请求 fal.ai, 模型: ${selectedModelId}, 参数:`, inputPayload);
+            const result = await fal.subscribe(selectedModelId, {
+                input: inputPayload, pollInterval: 5000, logs: true,
+                onQueueUpdate: (update) => {
+                    const newLogs = update.logs?.map(l => l.message) || [];
+                    if (newLogs.length > 0) { setLogs(current => [...current, ...newLogs]); }
+                },
+            });
+
+            console.log('接收到的完整结果:', result);
+            let finalResults = [];
+            const resultType = selectedModelConfig.type;
+            if (resultType === 'image') {
+                const images = result?.data?.images || result?.images;
+                if (images && Array.isArray(images) && images.length > 0) { finalResults = images.map(img => ({ ...img, type: 'image' })); }
+            } else {
+                const videoUrl = result?.data?.video?.url || result?.video?.url;
+                if (videoUrl) { finalResults = [{ url: videoUrl, type: 'video' }]; }
+            }
+            if (finalResults.length > 0) {
+                setMediaResults(finalResults);
+            } else {
+                throw new Error(`模型返回了非预期的${resultType}数据结构。`);
+            }
+        } catch (err) {
+            setError('处理失败: ' + (err.message || err.toString() || '未知错误'));
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const isImageToVideo = selectedModelConfig?.id.includes('image-to-video');
     const isKling = selectedModelConfig?.id.includes('kling');
+    const isSeedream = selectedModelConfig?.id.includes('seedream');
+    const isFlux = selectedModelConfig?.id.includes('flux');
+    const isVeo3 = selectedModelConfig?.id.includes('veo3');
+    const isHailuoI2V = selectedModelConfig?.id === 'fal-ai/minimax/hailuo-02/pro/image-to-video';
+    const isHailuoT2V = selectedModelConfig?.id === 'fal-ai/minimax/hailuo-02/pro/text-to-video';
+    const isHailuo = isHailuoI2V || isHailuoT2V;
     const isSeedance = selectedModelConfig?.id.includes('seedance');
-    const isButtonDisabled = isLoading || !prompt.trim() || (isImageToVideo && imageFiles.length === 0);
+    const isButtonDisabled = isLoading || (isImageToVideo && imageFiles.length === 0);
 
     return (
         <div className="w-full max-w-2xl mx-auto p-6 sm:p-8 bg-white shadow-xl rounded-lg space-y-6">
@@ -135,45 +201,19 @@ export function VideoGenerator() {
                         </div>
                     )}
                     
-                    {/* ====================================================== */}
-                    {/* ========== [核心修复] 恢复并重构所有参数UI ========== */}
-                    {/* ====================================================== */}
                     <div className="space-y-2">
                         <label htmlFor="prompt" className="block text-sm font-medium text-gray-700">2. 输入提示词 (Prompt)</label>
                         <textarea id="prompt" rows={3} className="w-full p-2 border border-gray-300 rounded-md" placeholder="描述你想生成的内容..." value={prompt} onChange={(e) => setPrompt(e.target.value)} disabled={isLoading} />
                     </div>
                     
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {/* Kling 专属参数 */}
-                        {isKling && (
-                            <>
-                                <div className="space-y-2"><label htmlFor="negativePrompt" className="block text-sm font-medium">反向提示词</label><input type="text" id="negativePrompt" className="w-full p-2 border border-gray-300 rounded-md" value={negativePrompt} onChange={e=>setNegativePrompt(e.target.value)} disabled={isLoading}/></div>
-                                <div className="space-y-2"><label htmlFor="cfgScale" className="block text-sm font-medium">CFG Scale</label><input type="number" id="cfgScale" step="0.1" className="w-full p-2 border border-gray-300 rounded-md" value={cfgScale} onChange={e=>setCfgScale(e.target.value)} disabled={isLoading}/></div>
-                                <div className="space-y-2"> <label htmlFor="aspectRatioKling" className="block text-sm font-medium">画面比例</label> <select id="aspectRatioKling" className="w-full p-2 border border-gray-300 rounded-md" value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} disabled={isLoading}> {selectedModelConfig.defaults.aspectRatioOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)} </select> </div>
-                                <div className="space-y-2"> <label htmlFor="durationKling" className="block text-sm font-medium">时长</label> <select id="durationKling" className="w-full p-2 border border-gray-300 rounded-md" value={duration} onChange={(e) => setDuration(e.target.value)} disabled={isLoading}> {selectedModelConfig.defaults.durationOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)} </select> </div>
-                            </>
-                        )}
-                        {/* Seedance 专属UI */}
-                        {isSeedance && (
-                            <>
-                                <div className="space-y-2">
-                                    <label htmlFor="motionBucketId" className="flex justify-between text-sm font-medium"><span>运动幅度</span><span className="font-mono">{motionBucketId}</span></label>
-                                    <input type="range" id="motionBucketId" min="1" max="255" value={motionBucketId} onChange={e=>setMotionBucketId(e.target.value)} disabled={isLoading} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"/>
-                                </div>
-                                <div className="space-y-2">
-                                    <label htmlFor="condAug" className="flex justify-between text-sm font-medium"><span>条件增强</span><span className="font-mono">{condAug}</span></label>
-                                    <input type="range" id="condAug" min="0.00" max="0.1" step="0.01" value={condAug} onChange={e=>setCondAug(e.target.value)} disabled={isLoading} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"/>
-                                </div>
-                                <div className="sm:col-span-2 space-y-2"><label htmlFor="negativePrompt" className="block text-sm font-medium">反向提示词</label><input type="text" id="negativePrompt" className="w-full p-2 border border-gray-300 rounded-md" value={negativePrompt} onChange={e=>setNegativePrompt(e.target.value)} disabled={isLoading}/></div>
-                            </>
-                        )}
-                        {/* ...其他模型的UI... */}
+                        {isKling && ( <> <div className="space-y-2"><label htmlFor="negativePrompt" className="block text-sm font-medium">反向提示词</label><input type="text" id="negativePrompt" className="w-full p-2 border border-gray-300 rounded-md" value={negativePrompt} onChange={e=>setNegativePrompt(e.target.value)} disabled={isLoading}/></div> <div className="space-y-2"><label htmlFor="cfgScale" className="block text-sm font-medium">CFG Scale</label><input type="number" id="cfgScale" step="0.1" className="w-full p-2 border border-gray-300 rounded-md" value={cfgScale} onChange={e=>setCfgScale(e.target.value)} disabled={isLoading}/></div> <div className="space-y-2"> <label htmlFor="aspectRatioKling" className="block text-sm font-medium">画面比例</label> <select id="aspectRatioKling" className="w-full p-2 border border-gray-300 rounded-md" value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} disabled={isLoading}> {selectedModelConfig.defaults.aspectRatioOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)} </select> </div> <div className="space-y-2"> <label htmlFor="durationKling" className="block text-sm font-medium">时长</label> <select id="durationKling" className="w-full p-2 border border-gray-300 rounded-md" value={duration} onChange={(e) => setDuration(e.target.value)} disabled={isLoading}> {selectedModelConfig.defaults.durationOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)} </select> </div> </> )}
+                        {isSeedance && ( <> <div className="space-y-2"> <label htmlFor="motionBucketId" className="flex justify-between text-sm font-medium"><span>运动幅度</span><span className="font-mono">{motionBucketId}</span></label> <input type="range" id="motionBucketId" min="1" max="255" value={motionBucketId} onChange={e=>setMotionBucketId(e.target.value)} disabled={isLoading} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"/> </div> <div className="space-y-2"> <label htmlFor="condAug" className="flex justify-between text-sm font-medium"><span>条件增强</span><span className="font-mono">{condAug}</span></label> <input type="range" id="condAug" min="0.00" max="0.1" step="0.01" value={condAug} onChange={e=>setCondAug(e.target.value)} disabled={isLoading} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"/> </div> <div className="sm:col-span-2 space-y-2"><label htmlFor="negativePrompt" className="block text-sm font-medium">反向提示词</label><input type="text" id="negativePrompt" className="w-full p-2 border border-gray-300 rounded-md" value={negativePrompt} onChange={e=>setNegativePrompt(e.target.value)} disabled={isLoading}/></div> </> )}
                     </div>
                     
                     <button className={`w-full py-3 px-4 rounded-md text-white font-semibold text-lg transition-colors ${ isButtonDisabled ? 'bg-indigo-300 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700' }`} onClick={handleGenerate} disabled={isLoading || !selectedModelId}>
                         {isLoading ? '正在处理...' : `生成${selectedModelConfig?.type === 'image' ? '图片' : '视频'}`}
                     </button>
-                    {/* ====================================================== */}
                 </>
             ) : (
                 <div className="text-center text-red-500">错误：没有检测到任何激活的模型。</div>
